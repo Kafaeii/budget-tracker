@@ -1,0 +1,674 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Budget Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
+  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } = Recharts;
+
+    /* ── Inline SVG icons (replaces lucide-react) ── */
+    const Ico = ({size=16,children}) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" style={{display:'inline-block',flexShrink:0}}>{children}</svg>
+    );
+    const PlusCircle  = ({size=16}) => <Ico size={size}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></Ico>;
+    const Trash2      = ({size=16}) => <Ico size={size}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></Ico>;
+    const Edit2       = ({size=16}) => <Ico size={size}><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></Ico>;
+    const ChevronLeft = ({size=20}) => <Ico size={size}><polyline points="15 18 9 12 15 6"/></Ico>;
+    const ChevronRight= ({size=20}) => <Ico size={size}><polyline points="9 18 15 12 9 6"/></Ico>;
+    const X           = ({size=16}) => <Ico size={size}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Ico>;
+    const Check       = ({size=16}) => <Ico size={size}><path d="M5 12l5 5L20 7"/></Ico>;
+    const Upload      = ({size=16}) => <Ico size={size}><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></Ico>;
+    const AlertCircle = ({size=16}) => <Ico size={size}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></Ico>;
+    const TrendingUp  = ({size=16}) => <Ico size={size}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></Ico>;
+    const TrendingDown= ({size=16}) => <Ico size={size}><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></Ico>;
+    const LayoutDashboard=({size=16})=><Ico size={size}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></Ico>;
+    const List        = ({size=16}) => <Ico size={size}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></Ico>;
+    const RefreshCw   = ({size=16}) => <Ico size={size}><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></Ico>;
+    const Target      = ({size=16}) => <Ico size={size}><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></Ico>;
+
+    /* ── Constants ── */
+    const EXPENSE_CATS = ["Housing","Food","Dining Out","Transport","Health","Entertainment","Clothing","Education","Subscriptions","Vacation & Travel","Personal Care","Sports & Fitness","Gifts & Donations","Insurance","Other"];
+    const INCOME_CATS  = ["Salary","Freelance","Bonus","Investment","Rental Income","Gift","Pension","Other"];
+    const COLORS    = ["#6366f1","#f59e0b","#10b981","#ef4444","#3b82f6","#ec4899","#8b5cf6","#14b8a6","#f97316","#06b6d4","#84cc16","#a855f7","#facc15","#78716c","#6b7280"];
+    const IN_COLORS = ["#10b981","#34d399","#059669","#6ee7b7","#047857","#065f46","#a7f3d0","#d1fae5"];
+    const FREQ_OPTS = [{val:"one-time",label:"One-time"},{val:"monthly",label:"Monthly"},{val:"yearly",label:"Yearly"}];
+
+    /* ── Helpers ── */
+    const fmt = n => n.toLocaleString("da-DK",{minimumFractionDigits:0,maximumFractionDigits:0});
+    const getMonth = () => { const n=new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,"0")}`; };
+    const labelMonth = s => { const [y,m]=s.split("-"); return new Date(y,m-1).toLocaleString("en",{month:"long",year:"numeric"}); };
+    const shiftMonth = (s,d) => { const [y,m]=s.split("-").map(Number); const dt=new Date(y,m-1+d); return `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}`; };
+    const today = () => new Date().toISOString().split("T")[0];
+    const emptyForm = { type:"expense", description:"", amount:"", category:"Food", date:today(), frequency:"one-time", notes:"" };
+
+    function parseDate(raw) {
+      if (!raw) return today(); raw=raw.trim();
+      let m=raw.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
+      if (m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+      const d=new Date(raw); return isNaN(d)?today():d.toISOString().split("T")[0];
+    }
+    function parseAmount(raw) {
+      if (!raw) return null;
+      const s=raw.toString().trim().replace(/[^\d,.\-+]/g,"").replace(",",".");
+      const n=parseFloat(s); return isNaN(n)?null:n;
+    }
+    function projectRecurring(recList, viewMonth) {
+      const [vy,vm]=viewMonth.split("-").map(Number); const results=[];
+      for (const r of recList) {
+        const [sy,sm,sd]=r.startDate.split("-").map(Number);
+        if (r.frequency==="monthly" && (vy*12+vm)>=(sy*12+sm))
+          results.push({...r,id:`rec-${r.id}-${viewMonth}`,recurringId:r.id,isRecurring:true,date:`${viewMonth}-${String(sd).padStart(2,"0")}`});
+        else if (r.frequency==="yearly" && vm===sm && vy>=sy)
+          results.push({...r,id:`rec-${r.id}-${viewMonth}`,recurringId:r.id,isRecurring:true,date:`${vy}-${String(sm).padStart(2,"0")}-${String(sd).padStart(2,"0")}`});
+      }
+      return results;
+    }
+
+    /* ── localStorage helpers ── */
+    const lsSave = (key,val) => { try{ localStorage.setItem(key,JSON.stringify(val)); }catch{} };
+    const lsLoad = (key) => { try{ const v=localStorage.getItem(key); return v?JSON.parse(v):null; }catch{ return null; } };
+
+    /* ── Sub-components ── */
+    function FormPanel({form,setForm,cats,err,handleSubmit,closeForm,editId}) {
+      return (
+        <div className="bg-gray-50 rounded-xl p-4 mb-4 border border-gray-200">
+          <div className="flex gap-2 mb-3">
+            {["expense","income"].map(tp=>(
+              <button key={tp} onClick={()=>setForm(f=>({...f,type:tp,category:tp==="income"?"Salary":"Food"}))}
+                className={`flex-1 py-1.5 rounded-lg text-sm font-medium capitalize transition-colors ${form.type===tp?(tp==="expense"?"bg-red-500 text-white":"bg-green-500 text-white"):"bg-gray-200 text-gray-600 hover:bg-gray-300"}`}>{tp}</button>
+            ))}
+          </div>
+          <input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Description" className="w-full border border-gray-200 rounded-lg p-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+          <div className="flex gap-2 mb-2">
+            <input value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="Amount (kr)" type="number" min="0" className="flex-1 border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+            <input value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} type="date" className="flex-1 border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+          </div>
+          <div className="flex gap-2 mb-2">
+            <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))} className="flex-1 border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+              {cats.map(c=><option key={c}>{c}</option>)}
+            </select>
+            <select value={form.frequency} onChange={e=>setForm(f=>({...f,frequency:e.target.value}))} className="flex-1 border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+              {FREQ_OPTS.map(o=><option key={o.val} value={o.val}>{o.label}</option>)}
+            </select>
+          </div>
+          <textarea value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optional)" rows={2} className="w-full border border-gray-200 rounded-lg p-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"/>
+          {form.frequency!=="one-time" && <p className="text-xs text-indigo-500 bg-indigo-50 rounded-lg px-3 py-1.5 mb-2">↻ Auto-appears every {form.frequency==="monthly"?"month":"year"} from {form.date}.</p>}
+          {err && <p className="text-xs text-red-500 mb-2">{err}</p>}
+          <div className="flex gap-2">
+            <button onClick={handleSubmit} className="flex-1 bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-1"><Check size={14}/>{editId?"Update":"Add"}</button>
+            <button onClick={closeForm} className="flex-1 bg-gray-200 text-gray-600 py-2 rounded-lg text-sm font-medium hover:bg-gray-300 flex items-center justify-center gap-1"><X size={14}/>Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    function TxnRow({t,onEdit,onDelete}) {
+      return (
+        <div className="flex items-start gap-3 p-2.5 rounded-xl hover:bg-gray-50 transition-colors group">
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${t.type==="income"?"bg-green-400":"bg-red-400"}`}/>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <p className="text-sm font-medium text-gray-700 truncate">{t.description}</p>
+              {t.isRecurring && <span className="flex items-center gap-0.5 text-xs bg-indigo-50 text-indigo-500 border border-indigo-100 rounded-full px-1.5 py-0.5 flex-shrink-0"><RefreshCw size={9}/>{t.frequency==="monthly"?"mo":"yr"}</span>}
+            </div>
+            <p className="text-xs text-gray-400">{t.category} · {t.date}</p>
+            {t.notes && <p className="text-xs text-gray-400 italic mt-0.5">"{t.notes}"</p>}
+          </div>
+          <span className={`text-sm font-bold flex-shrink-0 ${t.type==="income"?"text-green-600":"text-red-600"}`}>{t.type==="income"?"+":"-"}kr {fmt(t.amount)}</span>
+          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={()=>onEdit(t)} className="text-gray-300 hover:text-indigo-500 p-1"><Edit2 size={13}/></button>
+            <button onClick={()=>onDelete(t)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={13}/></button>
+          </div>
+        </div>
+      );
+    }
+
+    function CatBreakdown({items,total,colors}) {
+      if (!items.length) return <p className="text-center text-gray-400 text-sm py-4">No data this month.</p>;
+      return (
+        <div className="space-y-2">
+          {items.map((d,i)=>(
+            <div key={d.name} className="flex items-center gap-2">
+              <span style={{background:colors[i%colors.length]}} className="w-2.5 h-2.5 rounded-full flex-shrink-0"/>
+              <span className="text-sm text-gray-600 flex-1">{d.name}</span>
+              <span className="text-sm font-medium text-gray-700">kr {fmt(d.value)}</span>
+              <div className="w-20 bg-gray-100 rounded-full h-1.5"><div style={{width:`${total>0?(d.value/total)*100:0}%`,background:colors[i%colors.length]}} className="h-1.5 rounded-full"/></div>
+              <span className="text-xs text-gray-400 w-7 text-right">{total>0?Math.round((d.value/total)*100):0}%</span>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    function DeleteModal({t,onConfirm,onCancel,isRecurring}) {
+      return (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.3)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:50,padding:'1rem'}}>
+          <div className="bg-white rounded-2xl p-5 shadow-xl max-w-sm w-full">
+            <h3 className="font-semibold text-gray-800 mb-2">Delete transaction?</h3>
+            {isRecurring ? (
+              <><p className="text-sm text-gray-500 mb-4">This is a recurring transaction.</p>
+              <div className="space-y-2">
+                <button onClick={()=>onConfirm("rule")} className="w-full bg-red-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-red-600">Delete recurring rule (stops all future months)</button>
+                <button onClick={()=>onConfirm("skip")} className="w-full bg-orange-100 text-orange-700 py-2 rounded-xl text-sm font-medium hover:bg-orange-200">Skip only this month</button>
+                <button onClick={onCancel} className="w-full bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-medium">Cancel</button>
+              </div></>
+            ) : (
+              <><p className="text-sm text-gray-500 mb-4">Delete <strong>{t?.description}</strong>?</p>
+              <div className="flex gap-2">
+                <button onClick={()=>onConfirm("one")} className="flex-1 bg-red-500 text-white py-2 rounded-xl text-sm font-medium hover:bg-red-600">Delete</button>
+                <button onClick={onCancel} className="flex-1 bg-gray-100 text-gray-600 py-2 rounded-xl text-sm font-medium">Cancel</button>
+              </div></>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    /* ── Main component ── */
+    function BudgetTracker() {
+      const [txns,setTxns]               = useState([]);
+      const [recurring,setRecurring]     = useState([]);
+      const [skipped,setSkipped]         = useState({});
+      const [goals,setGoals]             = useState([]);
+      const [limits,setLimits]           = useState({});
+      const [assets,setAssets]           = useState([]);
+      const [liabilities,setLiabilities] = useState([]);
+      const [month,setMonth]             = useState(getMonth());
+      const [tab,setTab]                 = useState("overview");
+      const [txnFilter,setTxnFilter]     = useState("all");
+      const [showForm,setShowForm]       = useState(false);
+      const [editId,setEditId]           = useState(null);
+      const [editIsRec,setEditIsRec]     = useState(false);
+      const [form,setForm]               = useState(emptyForm);
+      const [loaded,setLoaded]           = useState(false);
+      const [err,setErr]                 = useState("");
+      const [deleteTarget,setDeleteTarget] = useState(null);
+      const [showGoalForm,setShowGoalForm] = useState(false);
+      const [editGoalId,setEditGoalId]     = useState(null);
+      const [goalForm,setGoalForm]         = useState({name:"",target:"",saved:""});
+      const [showNwForm,setShowNwForm]     = useState(false);
+      const [editNwId,setEditNwId]         = useState(null);
+      const [editNwType,setEditNwType]     = useState(null);
+      const [nwForm,setNwForm]             = useState({type:"asset",name:"",amount:""});
+      const [csvStep,setCsvStep]           = useState(null);
+      const [csvRows,setCsvRows]           = useState([]);
+      const [csvHeaders,setCsvHeaders]     = useState([]);
+      const [csvMap,setCsvMap]             = useState({date:"",description:"",amount:""});
+      const [csvPreview,setCsvPreview]     = useState([]);
+      const [csvError,setCsvError]         = useState("");
+      const [importCount,setImportCount]   = useState(null);
+      const fileRef = useRef(); const backupFileRef = useRef();
+
+      /* Load from localStorage on mount */
+      useEffect(()=>{
+        const load=(key,set)=>{ const v=lsLoad(key); if(v!=null) set(v); };
+        load("budget_txns",setTxns); load("budget_recurring",setRecurring);
+        load("budget_skipped",setSkipped); load("budget_goals",setGoals);
+        load("budget_limits",setLimits); load("budget_assets",setAssets);
+        load("budget_liabilities",setLiabilities); setLoaded(true);
+      },[]);
+
+      /* Save to localStorage on change */
+      const save=(key,val)=>{ if(!loaded) return; lsSave(key,val); };
+      useEffect(()=>save("budget_txns",txns),[txns,loaded]);
+      useEffect(()=>save("budget_recurring",recurring),[recurring,loaded]);
+      useEffect(()=>save("budget_skipped",skipped),[skipped,loaded]);
+      useEffect(()=>save("budget_goals",goals),[goals,loaded]);
+      useEffect(()=>save("budget_limits",limits),[limits,loaded]);
+      useEffect(()=>save("budget_assets",assets),[assets,loaded]);
+      useEffect(()=>save("budget_liabilities",liabilities),[liabilities,loaded]);
+
+      /* Computed */
+      const monthly  = [...txns.filter(t=>t.date.startsWith(month)),...projectRecurring(recurring,month).filter(r=>!skipped[`${r.recurringId}-${month}`])];
+      const incTxns  = monthly.filter(t=>t.type==="income");
+      const expTxns  = monthly.filter(t=>t.type==="expense");
+      const income   = incTxns.reduce((s,t)=>s+t.amount,0);
+      const expenses = expTxns.reduce((s,t)=>s+t.amount,0);
+      const balance  = income-expenses;
+      const expByCat = EXPENSE_CATS.map(c=>({name:c,value:expTxns.filter(t=>t.category===c).reduce((s,t)=>s+t.amount,0)})).filter(d=>d.value>0);
+      const incByCat = INCOME_CATS.map(c=>({name:c,value:incTxns.filter(t=>t.category===c).reduce((s,t)=>s+t.amount,0)})).filter(d=>d.value>0);
+      const last6 = Array.from({length:6},(_,i)=>shiftMonth(month,-(5-i))).map(m=>{
+        const all=[...txns.filter(t=>t.date.startsWith(m)),...projectRecurring(recurring,m).filter(r=>!skipped[`${r.recurringId}-${m}`])];
+        return {name:new Date(m+"-01").toLocaleString("en",{month:"short"}),Income:all.filter(t=>t.type==="income").reduce((s,t)=>s+t.amount,0),Expenses:all.filter(t=>t.type==="expense").reduce((s,t)=>s+t.amount,0)};
+      });
+      const alerts=[];
+      if (monthly.length>0) {
+        if (expenses>income) alerts.push({type:"danger",msg:`Expenses exceed income by kr ${fmt(expenses-income)}.`});
+        EXPENSE_CATS.forEach(cat=>{ const limit=limits[cat]; if(!limit) return;
+          const spent=expTxns.filter(t=>t.category===cat).reduce((s,t)=>s+t.amount,0); if(!spent) return;
+          const pct=spent/limit;
+          if (pct>=1) alerts.push({type:"danger",msg:`Over budget on ${cat}: kr ${fmt(spent)} of kr ${fmt(limit)}.`});
+          else if (pct>=0.8) alerts.push({type:"warning",msg:`${Math.round(pct*100)}% of ${cat} budget used.`});
+        });
+        if (income>0&&expenses<=income) alerts.push({type:"success",msg:`On track to save kr ${fmt(balance)} this month!`});
+      }
+      const totalAssets=assets.reduce((s,a)=>s+a.amount,0);
+      const totalLiabilities=liabilities.reduce((s,l)=>s+l.amount,0);
+      const netWorth=totalAssets-totalLiabilities;
+      const f=v=>`kr ${fmt(v)}`;
+
+      /* Handlers */
+      const openForm=(type)=>{ setForm({...emptyForm,type:type||"expense",category:type==="income"?"Salary":"Food"}); setEditId(null); setEditIsRec(false); setErr(""); setShowForm(true); };
+      const closeForm=()=>{ setShowForm(false); setEditId(null); setEditIsRec(false); setErr(""); };
+      const handleEdit=t=>{
+        if(t.isRecurring){ const tmpl=recurring.find(r=>r.id===t.recurringId); if(!tmpl) return;
+          setForm({type:tmpl.type,description:tmpl.description,amount:String(tmpl.amount),category:tmpl.category,date:tmpl.startDate,frequency:tmpl.frequency,notes:tmpl.notes||""});
+          setEditId(tmpl.id); setEditIsRec(true);
+        } else {
+          setForm({type:t.type,description:t.description,amount:String(t.amount),category:t.category,date:t.date,frequency:"one-time",notes:t.notes||""});
+          setEditId(t.id); setEditIsRec(false);
+        }
+        setErr(""); setShowForm(true);
+      };
+      const handleDeleteConfirm=(mode)=>{
+        const t=deleteTarget;
+        if(mode==="rule") setRecurring(p=>p.filter(r=>r.id!==t.recurringId));
+        else if(mode==="skip") setSkipped(s=>({...s,[`${t.recurringId}-${month}`]:true}));
+        else setTxns(p=>p.filter(x=>x.id!==t.id));
+        setDeleteTarget(null);
+      };
+      const handleSubmit=()=>{
+        if(!form.description.trim()) return setErr("Please enter a description.");
+        const amt=parseFloat(form.amount);
+        if(!form.amount||isNaN(amt)||amt<=0) return setErr("Please enter a valid amount.");
+        const isRec=form.frequency!=="one-time";
+        if(isRec){
+          const tmpl={id:editIsRec?editId:Date.now().toString(),type:form.type,description:form.description.trim(),amount:amt,category:form.category,startDate:form.date,frequency:form.frequency,notes:form.notes};
+          if(editIsRec) setRecurring(p=>p.map(r=>r.id===editId?tmpl:r));
+          else{ if(editId) setTxns(p=>p.filter(t=>t.id!==editId)); setRecurring(p=>[...p,tmpl]); }
+        } else {
+          const entry={id:editId&&!editIsRec?editId:Date.now().toString(),type:form.type,description:form.description.trim(),amount:amt,category:form.category,date:form.date,notes:form.notes};
+          if(editIsRec){ setRecurring(p=>p.filter(r=>r.id!==editId)); setTxns(p=>[...p,entry]); }
+          else setTxns(p=>editId?p.map(t=>t.id===editId?entry:t):[...p,entry]);
+        }
+        closeForm();
+      };
+      const handleGoalSubmit=()=>{
+        if(!goalForm.name.trim()) return;
+        const target=parseFloat(goalForm.target); if(isNaN(target)||target<=0) return;
+        const saved=parseFloat(goalForm.saved)||0;
+        const entry={id:editGoalId||Date.now().toString(),name:goalForm.name.trim(),target,saved};
+        setGoals(p=>editGoalId?p.map(g=>g.id===editGoalId?entry:g):[...p,entry]);
+        setShowGoalForm(false); setEditGoalId(null); setGoalForm({name:"",target:"",saved:""});
+      };
+      const handleNwSubmit=()=>{
+        if(!nwForm.name.trim()) return;
+        const amount=parseFloat(nwForm.amount); if(isNaN(amount)||amount<=0) return;
+        const entry={id:editNwId||Date.now().toString(),name:nwForm.name.trim(),amount};
+        if(nwForm.type==="asset"){ setAssets(p=>editNwId&&editNwType==="asset"?p.map(a=>a.id===editNwId?entry:a):[...p,entry]); if(editNwId&&editNwType==="liability") setLiabilities(p=>p.filter(l=>l.id!==editNwId)); }
+        else{ setLiabilities(p=>editNwId&&editNwType==="liability"?p.map(l=>l.id===editNwId?entry:l):[...p,entry]); if(editNwId&&editNwType==="asset") setAssets(p=>p.filter(a=>a.id!==editNwId)); }
+        setShowNwForm(false); setEditNwId(null); setEditNwType(null); setNwForm({type:"asset",name:"",amount:""});
+      };
+      const exportBackup=()=>{
+        const data=JSON.stringify({txns,recurring,skipped,goals,limits,assets,liabilities,exportedAt:new Date().toISOString()},null,2);
+        const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([data],{type:"application/json"})); a.download=`budget-backup-${today()}.json`; a.click();
+      };
+      const importBackup=e=>{ const file=e.target.files[0]; if(!file) return;
+        const r=new FileReader(); r.onload=ev=>{ try{ const d=JSON.parse(ev.target.result);
+          if(d.txns) setTxns(d.txns); if(d.recurring) setRecurring(d.recurring); if(d.skipped) setSkipped(d.skipped);
+          if(d.goals) setGoals(d.goals); if(d.limits) setLimits(d.limits); if(d.assets) setAssets(d.assets); if(d.liabilities) setLiabilities(d.liabilities);
+          alert("Backup restored!"); }catch{ alert("Could not read file."); } }; r.readAsText(file); e.target.value="";
+      };
+      const onFileChange=e=>{ const file=e.target.files[0]; if(!file) return; setCsvError(""); setImportCount(null);
+        Papa.parse(file,{header:true,skipEmptyLines:true,complete:res=>{
+          if(!res.data.length) return setCsvError("File is empty.");
+          setCsvRows(res.data); const hdrs=Object.keys(res.data[0]); setCsvHeaders(hdrs);
+          const find=(...keys)=>hdrs.find(h=>keys.some(k=>h.toLowerCase().includes(k)))||"";
+          setCsvMap({date:find("dato","date"),description:find("tekst","beskrivelse","text","description","note","navn"),amount:find("beløb","belob","amount","sum","kredit","debit","saldo")});
+          setCsvStep("map");
+        },error:()=>setCsvError("Could not read file.")}); e.target.value="";
+      };
+      const buildPreview=()=>{ if(!csvMap.date||!csvMap.description||!csvMap.amount) return setCsvError("Please map all three columns."); setCsvError("");
+        setCsvPreview(csvRows.slice(0,5).map((r,i)=>{ const ra=parseAmount(r[csvMap.amount]);
+          return{key:i,date:parseDate(r[csvMap.date]),description:(r[csvMap.description]||"").trim()||"(no description)",amount:ra===null?"?":Math.abs(ra),type:ra!==null&&ra>=0?"income":"expense",valid:ra!==null}; }));
+        setCsvStep("preview");
+      };
+      const confirmImport=()=>{
+        const entries=csvRows.map((r,i)=>{ const ra=parseAmount(r[csvMap.amount]); if(ra===null) return null;
+          return{id:`csv-${Date.now()}-${i}`,date:parseDate(r[csvMap.date]),description:(r[csvMap.description]||"").trim()||"Imported",amount:Math.abs(ra),type:ra>=0?"income":"expense",category:"Other",notes:""}; }).filter(Boolean);
+        setTxns(prev=>{ const ids=new Set(prev.map(t=>t.date+"|"+t.description+"|"+t.amount));
+          const fresh=entries.filter(e=>!ids.has(e.date+"|"+e.description+"|"+e.amount)); setImportCount(fresh.length); return [...prev,...fresh]; });
+        setCsvStep(null); setCsvRows([]); setCsvHeaders([]); setCsvPreview([]);
+      };
+      const closeCsv=()=>{ setCsvStep(null); setCsvRows([]); setCsvHeaders([]); setCsvPreview([]); setCsvError(""); };
+
+      const cats=form.type==="income"?INCOME_CATS:EXPENSE_CATS;
+      const filteredTxns=[...monthly].filter(t=>txnFilter==="all"||t.type===txnFilter).sort((a,b)=>b.date.localeCompare(a.date));
+      const formProps={form,setForm,cats,err,handleSubmit,closeForm,editId};
+      const TABS=[{id:"overview",label:"Overview",icon:<LayoutDashboard size={13}/>},{id:"transactions",label:"All",icon:<List size={13}/>},{id:"income",label:"Income",icon:<TrendingUp size={13}/>},{id:"expenses",label:"Expenses",icon:<TrendingDown size={13}/>},{id:"recurring",label:"Recurring",icon:<RefreshCw size={13}/>},{id:"goals",label:"Goals",icon:<Target size={13}/>}];
+      const alertStyle={danger:{bg:"bg-red-50",border:"border-red-200",text:"text-red-700"},warning:{bg:"bg-orange-50",border:"border-orange-200",text:"text-orange-700"},success:{bg:"bg-green-50",border:"border-green-200",text:"text-green-700"}};
+
+      return (
+        <div style={{fontFamily:"system-ui,sans-serif"}} className="min-h-screen bg-gray-50 p-4">
+          {deleteTarget&&<DeleteModal t={deleteTarget} isRecurring={!!deleteTarget.isRecurring} onConfirm={handleDeleteConfirm} onCancel={()=>setDeleteTarget(null)}/>}
+          <div className="max-w-xl mx-auto">
+
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={()=>setMonth(shiftMonth(month,-1))} className="p-2 rounded-full hover:bg-gray-200 transition-colors"><ChevronLeft size={20}/></button>
+              <div className="text-center"><h1 className="text-xl font-bold text-gray-800">{labelMonth(month)}</h1><p className="text-xs text-gray-400">Budget Tracker</p></div>
+              <button onClick={()=>setMonth(shiftMonth(month,1))} className="p-2 rounded-full hover:bg-gray-200 transition-colors"><ChevronRight size={20}/></button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              {[{label:"Income",val:income,bg:"bg-green-50",border:"border-green-200",tc:"text-green-700",lc:"text-green-600"},{label:"Expenses",val:expenses,bg:"bg-red-50",border:"border-red-200",tc:"text-red-700",lc:"text-red-600"},{label:"Balance",val:balance,bg:balance>=0?"bg-blue-50":"bg-orange-50",border:balance>=0?"border-blue-200":"border-orange-200",tc:balance>=0?"text-blue-700":"text-orange-700",lc:balance>=0?"text-blue-600":"text-orange-600"}].map(c=>(
+                <div key={c.label} className={`${c.bg} border ${c.border} rounded-2xl p-3 text-center shadow-sm`}>
+                  <p className={`text-xs font-semibold ${c.lc} mb-1`}>{c.label}</p>
+                  <p className={`text-base font-bold ${c.tc}`}>kr {fmt(c.val)}</p>
+                </div>
+              ))}
+            </div>
+
+            {alerts.length>0&&(tab==="overview"||tab==="expenses")&&(
+              <div className="space-y-2 mb-4">
+                {alerts.map((a,i)=>{ const s=alertStyle[a.type]; return(
+                  <div key={i} className={`${s.bg} border ${s.border} rounded-xl px-3 py-2 text-xs ${s.text} flex items-center gap-2`}>
+                    <AlertCircle size={13}/>{a.msg}
+                  </div>); })}
+              </div>
+            )}
+
+            <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-4">
+              {TABS.map(t=>(
+                <button key={t.id} onClick={()=>setTab(t.id)}
+                  className={`flex-1 flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-all ${tab===t.id?"bg-white shadow text-gray-800":"text-gray-500 hover:text-gray-700"}`}>
+                  {t.icon}{t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* OVERVIEW */}
+            {tab==="overview"&&(
+              <>
+                {monthly.length===0
+                  ?<div className="bg-white rounded-2xl p-8 text-center shadow-sm border border-gray-100"><p className="text-gray-400 text-sm">No transactions this month.</p></div>
+                  :<>
+                    <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+                      <h2 className="font-semibold text-gray-700 mb-3 text-sm">Last 6 months</h2>
+                      <ResponsiveContainer width="100%" height={160}>
+                        <BarChart data={last6} barSize={14}>
+                          <XAxis dataKey="name" tick={{fontSize:10}}/><YAxis hide/>
+                          <Tooltip formatter={v=>f(v)}/><Legend iconType="circle" iconSize={8} wrapperStyle={{fontSize:11}}/>
+                          <Bar dataKey="Income" fill="#10b981" radius={[3,3,0,0]}/><Bar dataKey="Expenses" fill="#ef4444" radius={[3,3,0,0]}/>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      {expByCat.length>0&&<div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                        <h2 className="font-semibold text-gray-700 mb-2 text-sm">Expense split</h2>
+                        <ResponsiveContainer width="100%" height={130}><PieChart><Pie data={expByCat} cx="50%" cy="50%" innerRadius={32} outerRadius={55} dataKey="value" paddingAngle={2}>{expByCat.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}</Pie><Tooltip formatter={v=>f(v)}/></PieChart></ResponsiveContainer>
+                      </div>}
+                      {incByCat.length>0&&<div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                        <h2 className="font-semibold text-gray-700 mb-2 text-sm">Income split</h2>
+                        <ResponsiveContainer width="100%" height={130}><PieChart><Pie data={incByCat} cx="50%" cy="50%" innerRadius={32} outerRadius={55} dataKey="value" paddingAngle={2}>{incByCat.map((_,i)=><Cell key={i} fill={IN_COLORS[i%IN_COLORS.length]}/>)}</Pie><Tooltip formatter={v=>f(v)}/></PieChart></ResponsiveContainer>
+                      </div>}
+                    </div>
+                  </>
+                }
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <div className="flex gap-2">
+                    <button onClick={exportBackup} className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-100 text-gray-600 py-2 rounded-xl hover:bg-gray-200 border border-gray-200 font-medium">⬇ Export Backup</button>
+                    <button onClick={()=>backupFileRef.current?.click()} className="flex-1 flex items-center justify-center gap-1.5 text-xs bg-gray-100 text-gray-600 py-2 rounded-xl hover:bg-gray-200 border border-gray-200 font-medium">⬆ Restore Backup</button>
+                    <input ref={backupFileRef} type="file" accept=".json" className="hidden" onChange={importBackup}/>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ALL TRANSACTIONS */}
+            {tab==="transactions"&&(
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                <div className="flex justify-between items-center mb-3">
+                  <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+                    {[{id:"all",label:"All"},{id:"income",label:"Income"},{id:"expense",label:"Expenses"}].map(f=>(
+                      <button key={f.id} onClick={()=>setTxnFilter(f.id)} className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${txnFilter===f.id?"bg-white shadow text-gray-800":"text-gray-500 hover:text-gray-700"}`}>{f.label}</button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={()=>{closeCsv();fileRef.current?.click();}} className="flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-200 border border-gray-200"><Upload size={12}/> CSV</button>
+                    <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onFileChange}/>
+                    <button onClick={()=>showForm?closeForm():openForm()} className="flex items-center gap-1 text-xs bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-indigo-700">{showForm?<><X size={12}/>Cancel</>:<><PlusCircle size={12}/>Add</>}</button>
+                  </div>
+                </div>
+                {importCount!==null&&<div className="bg-green-50 border border-green-200 rounded-xl px-4 py-2 mb-3 flex items-center justify-between"><p className="text-sm text-green-700 font-medium">✓ {importCount} transaction{importCount!==1?"s":""} imported!</p><button onClick={()=>setImportCount(null)}><X size={14} className="text-green-400"/></button></div>}
+                {csvStep==="map"&&csvHeaders.length>0&&(
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                    <div className="flex justify-between items-center mb-2"><h3 className="font-semibold text-blue-800 text-sm">Map CSV columns</h3><button onClick={closeCsv}><X size={14} className="text-blue-400"/></button></div>
+                    <p className="text-xs text-blue-600 mb-3">{csvRows.length} rows found.</p>
+                    {[{key:"date",label:"Date"},{key:"description",label:"Description"},{key:"amount",label:"Amount"}].map(({key,label})=>(
+                      <div key={key} className="flex items-center gap-2 mb-2">
+                        <label className="text-xs text-blue-700 w-24 flex-shrink-0">{label}</label>
+                        <select value={csvMap[key]} onChange={e=>setCsvMap(m=>({...m,[key]:e.target.value}))} className="flex-1 border border-blue-200 rounded-lg p-1.5 text-xs bg-white">
+                          <option value="">— select —</option>{csvHeaders.map(h=><option key={h}>{h}</option>)}
+                        </select>
+                      </div>
+                    ))}
+                    {csvError&&<p className="text-xs text-red-500 mb-2">{csvError}</p>}
+                    <button onClick={buildPreview} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Preview →</button>
+                  </div>
+                )}
+                {csvStep==="preview"&&(
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                    <div className="flex justify-between items-center mb-2"><h3 className="font-semibold text-blue-800 text-sm">Preview (first 5)</h3><button onClick={closeCsv}><X size={14} className="text-blue-400"/></button></div>
+                    <div className="space-y-1.5 mb-3">
+                      {csvPreview.map(r=>(
+                        <div key={r.key} className={`flex items-center gap-2 p-2 rounded-lg text-xs ${r.valid?"bg-white border border-gray-100":"bg-red-50 border border-red-100"}`}>
+                          {r.valid?<span className={`w-2 h-2 rounded-full flex-shrink-0 ${r.type==="income"?"bg-green-400":"bg-red-400"}`}/>:<AlertCircle size={12}/>}
+                          <span className="flex-1 truncate text-gray-600">{r.description}</span>
+                          <span className="text-gray-400">{r.date}</span>
+                          <span className={`font-medium ${r.valid?(r.type==="income"?"text-green-600":"text-red-600"):"text-red-400"}`}>{r.valid?`${r.type==="income"?"+":"-"}kr ${fmt(r.amount)}`:"invalid"}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-blue-600 mb-3">All {csvRows.length} rows — duplicates skipped.</p>
+                    <div className="flex gap-2">
+                      <button onClick={()=>setCsvStep("map")} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium">← Back</button>
+                      <button onClick={confirmImport} className="flex-1 bg-green-600 text-white py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-1"><Check size={14}/>Import All</button>
+                    </div>
+                  </div>
+                )}
+                {showForm&&<FormPanel {...formProps}/>}
+                {filteredTxns.length===0?<div className="text-center py-8"><p className="text-gray-400 text-sm">No transactions this month.</p></div>:<div className="space-y-1">{filteredTxns.map(t=><TxnRow key={t.id} t={t} onEdit={handleEdit} onDelete={setDeleteTarget}/>)}</div>}
+              </div>
+            )}
+
+            {/* INCOME */}
+            {tab==="income"&&(
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h2 className="font-semibold text-gray-700 text-sm">Where your income comes from</h2>
+                    <button onClick={()=>openForm("income")} className="flex items-center gap-1 text-xs bg-green-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-green-700"><PlusCircle size={12}/>Add</button>
+                  </div>
+                  {showForm&&<FormPanel {...formProps}/>}
+                  <CatBreakdown items={incByCat} total={income} colors={IN_COLORS}/>
+                </div>
+                {incTxns.length>0&&<div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <h2 className="font-semibold text-gray-700 text-sm mb-3">Income transactions</h2>
+                  <div className="space-y-1">{[...incTxns].sort((a,b)=>b.date.localeCompare(a.date)).map(t=><TxnRow key={t.id} t={t} onEdit={handleEdit} onDelete={setDeleteTarget}/>)}</div>
+                </div>}
+              </div>
+            )}
+
+            {/* EXPENSES */}
+            {tab==="expenses"&&(
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h2 className="font-semibold text-gray-700 text-sm">Where your money goes</h2>
+                    <button onClick={()=>openForm("expense")} className="flex items-center gap-1 text-xs bg-red-500 text-white px-2.5 py-1.5 rounded-lg hover:bg-red-600"><PlusCircle size={12}/>Add</button>
+                  </div>
+                  {showForm&&<FormPanel {...formProps}/>}
+                  {expByCat.length>0&&<div className="mb-4"><ResponsiveContainer width="100%" height={140}><PieChart><Pie data={expByCat} cx="50%" cy="50%" innerRadius={38} outerRadius={62} dataKey="value" paddingAngle={2}>{expByCat.map((_,i)=><Cell key={i} fill={COLORS[i%COLORS.length]}/>)}</Pie><Tooltip formatter={v=>f(v)}/></PieChart></ResponsiveContainer></div>}
+                  <CatBreakdown items={expByCat} total={expenses} colors={COLORS}/>
+                </div>
+                {expTxns.length>0&&<div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <h2 className="font-semibold text-gray-700 text-sm mb-3">Expense transactions</h2>
+                  <div className="space-y-1">{[...expTxns].sort((a,b)=>b.date.localeCompare(a.date)).map(t=><TxnRow key={t.id} t={t} onEdit={handleEdit} onDelete={setDeleteTarget}/>)}</div>
+                </div>}
+              </div>
+            )}
+
+            {/* RECURRING */}
+            {tab==="recurring"&&(
+              <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                <div className="flex justify-between items-center mb-3">
+                  <h2 className="font-semibold text-gray-700 text-sm">Recurring rules</h2>
+                  <button onClick={()=>openForm()} className="flex items-center gap-1 text-xs bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-indigo-700"><PlusCircle size={12}/>Add</button>
+                </div>
+                {showForm&&<FormPanel {...formProps}/>}
+                {recurring.length===0&&!showForm?<div className="text-center py-8"><p className="text-gray-400 text-sm">No recurring transactions yet.</p></div>
+                  :<div className="space-y-2">{recurring.map(r=>(
+                    <div key={r.id} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 hover:bg-gray-50 group">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.type==="income"?"bg-green-400":"bg-red-400"}`}/>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5"><p className="text-sm font-medium text-gray-700 truncate">{r.description}</p><span className="text-xs bg-indigo-50 text-indigo-500 border border-indigo-100 rounded-full px-2 py-0.5 capitalize">{r.frequency}</span></div>
+                        <p className="text-xs text-gray-400">{r.category} · from {r.startDate}</p>
+                      </div>
+                      <span className={`text-sm font-bold flex-shrink-0 ${r.type==="income"?"text-green-600":"text-red-600"}`}>{r.type==="income"?"+":"-"}kr {fmt(r.amount)}</span>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={()=>handleEdit({...r,isRecurring:true,recurringId:r.id})} className="text-gray-300 hover:text-indigo-500 p-1"><Edit2 size={13}/></button>
+                        <button onClick={()=>setRecurring(p=>p.filter(x=>x.id!==r.id))} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={13}/></button>
+                      </div>
+                    </div>
+                  ))}</div>
+                }
+              </div>
+            )}
+
+            {/* GOALS */}
+            {tab==="goals"&&(
+              <div className="space-y-4">
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <h2 className="font-semibold text-gray-700 text-sm mb-1">Monthly budget limits</h2>
+                  <p className="text-xs text-gray-400 mb-3">Leave blank for no limit.</p>
+                  <div className="space-y-2">
+                    {EXPENSE_CATS.map(cat=>{
+                      const limit=limits[cat]||""; const spent=expTxns.filter(t=>t.category===cat).reduce((s,t)=>s+t.amount,0);
+                      const pct=limit>0?Math.min(spent/limit,1):0; const over=limit>0&&spent>limit; const warn=limit>0&&spent/limit>=0.8&&!over;
+                      return(
+                        <div key={cat}>
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <span className="text-xs text-gray-600 flex-1">{cat}</span>
+                            {spent>0&&limit>0&&<span className="text-xs text-gray-400">kr {fmt(spent)} /</span>}
+                            <input type="number" min="0" placeholder="No limit" value={limit} onChange={e=>setLimits(l=>({...l,[cat]:parseFloat(e.target.value)||""}))}
+                              className="w-24 border border-gray-200 rounded-lg px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-indigo-300"/>
+                          </div>
+                          {limit>0&&spent>0&&<div className="w-full bg-gray-100 rounded-full h-1"><div style={{width:`${pct*100}%`}} className={`h-1 rounded-full ${over?"bg-red-500":warn?"bg-orange-400":"bg-indigo-400"}`}/></div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h2 className="font-semibold text-gray-700 text-sm">Savings goals</h2>
+                    <button onClick={()=>{setShowGoalForm(true);setEditGoalId(null);setGoalForm({name:"",target:"",saved:""});}} className="flex items-center gap-1 text-xs bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-indigo-700"><PlusCircle size={12}/>Add</button>
+                  </div>
+                  {showGoalForm&&(
+                    <div className="bg-gray-50 rounded-xl p-3 mb-3 border border-gray-200">
+                      <input value={goalForm.name} onChange={e=>setGoalForm(f=>({...f,name:e.target.value}))} placeholder="Goal name" className="w-full border border-gray-200 rounded-lg p-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                      <div className="flex gap-2 mb-2">
+                        <input value={goalForm.target} onChange={e=>setGoalForm(f=>({...f,target:e.target.value}))} placeholder="Target (kr)" type="number" min="0" className="flex-1 border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                        <input value={goalForm.saved} onChange={e=>setGoalForm(f=>({...f,saved:e.target.value}))} placeholder="Saved so far" type="number" min="0" className="flex-1 border border-gray-200 rounded-lg p-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={handleGoalSubmit} className="flex-1 bg-indigo-600 text-white py-1.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1"><Check size={13}/>Save</button>
+                        <button onClick={()=>{setShowGoalForm(false);setEditGoalId(null);}} className="flex-1 bg-gray-200 text-gray-600 py-1.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1"><X size={13}/>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  {goals.length===0&&!showGoalForm?<p className="text-center text-gray-400 text-sm py-4">No savings goals yet.</p>
+                    :<div className="space-y-3">{goals.map(g=>{ const pct=Math.min(g.saved/g.target,1); const done=g.saved>=g.target; return(
+                      <div key={g.id}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-sm font-medium text-gray-700">{g.name}</span>
+                          <div className="flex items-center gap-2">
+                            {done&&<span className="text-xs bg-green-50 text-green-600 border border-green-100 rounded-full px-2 py-0.5">Done!</span>}
+                            <span className="text-xs text-gray-400">kr {fmt(g.saved)} / {fmt(g.target)}</span>
+                            <button onClick={()=>{setGoalForm({name:g.name,target:String(g.target),saved:String(g.saved)});setEditGoalId(g.id);setShowGoalForm(true);}} className="text-gray-300 hover:text-indigo-500"><Edit2 size={12}/></button>
+                            <button onClick={()=>setGoals(p=>p.filter(x=>x.id!==g.id))} className="text-gray-300 hover:text-red-500"><Trash2 size={12}/></button>
+                          </div>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2"><div style={{width:`${pct*100}%`}} className={`h-2 rounded-full ${done?"bg-green-500":"bg-indigo-500"}`}/></div>
+                        <p className="text-xs text-gray-400 mt-0.5">{Math.round(pct*100)}% — kr {fmt(Math.max(g.target-g.saved,0))} to go</p>
+                      </div>
+                    );})}</div>
+                  }
+                </div>
+                <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+                  <div className="flex justify-between items-center mb-3">
+                    <h2 className="font-semibold text-gray-700 text-sm">Net worth</h2>
+                    <button onClick={()=>{setShowNwForm(true);setEditNwId(null);setNwForm({type:"asset",name:"",amount:""}); }} className="flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-200 border border-gray-200"><PlusCircle size={12}/>Add</button>
+                  </div>
+                  {showNwForm&&(
+                    <div className="bg-gray-50 rounded-xl p-3 mb-3 border border-gray-200">
+                      <div className="flex gap-2 mb-2">
+                        {["asset","liability"].map(tp=>(
+                          <button key={tp} onClick={()=>setNwForm(f=>({...f,type:tp}))} className={`flex-1 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${nwForm.type===tp?(tp==="asset"?"bg-green-500 text-white":"bg-red-500 text-white"):"bg-gray-200 text-gray-600"}`}>{tp}</button>
+                        ))}
+                      </div>
+                      <input value={nwForm.name} onChange={e=>setNwForm(f=>({...f,name:e.target.value}))} placeholder="Name (e.g. Savings account)" className="w-full border border-gray-200 rounded-lg p-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                      <input value={nwForm.amount} onChange={e=>setNwForm(f=>({...f,amount:e.target.value}))} placeholder="Amount (kr)" type="number" min="0" className="w-full border border-gray-200 rounded-lg p-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-indigo-300"/>
+                      <div className="flex gap-2">
+                        <button onClick={handleNwSubmit} className="flex-1 bg-indigo-600 text-white py-1.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1"><Check size={13}/>Save</button>
+                        <button onClick={()=>{setShowNwForm(false);setEditNwId(null);}} className="flex-1 bg-gray-200 text-gray-600 py-1.5 rounded-lg text-sm font-medium flex items-center justify-center gap-1"><X size={13}/>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <div>
+                      <p className="text-xs text-green-600 font-medium mb-2">Assets</p>
+                      {assets.length===0?<p className="text-xs text-gray-300">None added</p>:assets.map(a=>(
+                        <div key={a.id} className="flex items-center gap-1 mb-1.5 group">
+                          <span className="text-xs text-gray-600 flex-1 truncate">{a.name}</span>
+                          <span className="text-xs font-medium text-green-600">kr {fmt(a.amount)}</span>
+                          <button onClick={()=>{setNwForm({type:"asset",name:a.name,amount:String(a.amount)});setEditNwId(a.id);setEditNwType("asset");setShowNwForm(true);}} className="text-gray-200 hover:text-indigo-400 opacity-0 group-hover:opacity-100 ml-1"><Edit2 size={10}/></button>
+                          <button onClick={()=>setAssets(p=>p.filter(x=>x.id!==a.id))} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100"><Trash2 size={10}/></button>
+                        </div>
+                      ))}
+                    </div>
+                    <div>
+                      <p className="text-xs text-red-500 font-medium mb-2">Liabilities</p>
+                      {liabilities.length===0?<p className="text-xs text-gray-300">None added</p>:liabilities.map(l=>(
+                        <div key={l.id} className="flex items-center gap-1 mb-1.5 group">
+                          <span className="text-xs text-gray-600 flex-1 truncate">{l.name}</span>
+                          <span className="text-xs font-medium text-red-500">kr {fmt(l.amount)}</span>
+                          <button onClick={()=>{setNwForm({type:"liability",name:l.name,amount:String(l.amount)});setEditNwId(l.id);setEditNwType("liability");setShowNwForm(true);}} className="text-gray-200 hover:text-indigo-400 opacity-0 group-hover:opacity-100 ml-1"><Edit2 size={10}/></button>
+                          <button onClick={()=>setLiabilities(p=>p.filter(x=>x.id!==l.id))} className="text-gray-200 hover:text-red-400 opacity-0 group-hover:opacity-100"><Trash2 size={10}/></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {(assets.length>0||liabilities.length>0)&&(
+                    <div className={`flex justify-between items-center p-2.5 rounded-xl ${netWorth>=0?"bg-green-50":"bg-red-50"}`}>
+                      <span className="text-sm font-medium text-gray-600">Net worth</span>
+                      <span className={`text-sm font-bold ${netWorth>=0?"text-green-700":"text-red-700"}`}>kr {fmt(netWorth)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<BudgetTracker />);
+  </script>
+</body>
+</html>
